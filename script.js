@@ -13,6 +13,8 @@ const chatWindow = document.getElementById("chatWindow");
 const userInput = document.getElementById("userInput");
 const sendBtn = document.getElementById("sendBtn");
 const workerUrl = typeof WORKER_URL !== "undefined" ? WORKER_URL : "";
+const openAiApiKey =
+  typeof OPENAI_API_KEY !== "undefined" ? OPENAI_API_KEY : "";
 
 /* Store all products and selected IDs so we can keep selections across categories */
 let allProducts = [];
@@ -26,6 +28,9 @@ const followUpSystemPrompt =
   "You are a beauty routine advisor. Answer follow-up questions only about the generated routine or related beauty topics: skincare, haircare, makeup, fragrance, skin concerns, hair concerns, and product usage. If a question is unrelated, politely refuse and guide the user back to routine/beauty topics. Keep answers clear and beginner-friendly.";
 
 let conversationMessages = [{ role: "system", content: followUpSystemPrompt }];
+
+/* Store the user's name once they introduce themselves */
+let userName = "";
 
 function setGenerateButtonsState(isLoading) {
   const buttons = [generateRoutineBtn, generateRoutineStickyBtn].filter(
@@ -253,7 +258,7 @@ function appendChatMessage(sender, text, citations = []) {
     sender === "user" ? "chat-message user-message" : "chat-message ai-message";
 
   chatWindow.innerHTML += `
-    <div class="${bubbleClass}">
+    <div class="${bubbleClass}" dir="ltr">
       <strong>${senderLabel}:</strong><br>
       ${formatForChat(text)}
       ${renderCitations(citations)}
@@ -263,38 +268,58 @@ function appendChatMessage(sender, text, citations = []) {
   chatWindow.scrollTop = chatWindow.scrollHeight;
 }
 
-/* Send messages to Cloudflare Worker and optionally enable web search */
+/* Send messages to Cloudflare Worker, or fall back to OpenAI directly */
 async function callAdvisorWithWorker(messages, useWebSearch = false) {
-  if (!workerUrl) {
-    throw new Error(
-      "Add WORKER_URL in secrets.js so the app can call your Cloudflare Worker.",
-    );
+  /* --- Cloudflare Worker path --- */
+  if (workerUrl) {
+    const response = await fetch(`${workerUrl}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages, webSearch: useWebSearch }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Worker request failed with status ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    if (!data.text) {
+      throw new Error("No response text was returned by the worker.");
+    }
+
+    return {
+      text: data.text,
+      citations: Array.isArray(data.citations) ? data.citations : [],
+    };
   }
 
-  const response = await fetch(`${workerUrl}/chat`, {
+  /* --- Direct OpenAI fallback (no web search) --- */
+  if (!openAiApiKey) {
+    throw new Error("Add your OpenAI API key in secrets.js to use this app.");
+  }
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      Authorization: `Bearer ${openAiApiKey}`,
     },
     body: JSON.stringify({
+      model: "gpt-4o",
       messages,
-      webSearch: useWebSearch,
     }),
   });
 
   if (!response.ok) {
-    throw new Error(`Worker request failed with status ${response.status}`);
+    throw new Error(`OpenAI request failed with status ${response.status}`);
   }
 
   const data = await response.json();
 
-  if (!data.text) {
-    throw new Error("No response text was returned by the worker.");
-  }
-
   return {
-    text: data.text,
-    citations: Array.isArray(data.citations) ? data.citations : [],
+    text: data.choices[0].message.content,
+    citations: [],
   };
 }
 
@@ -310,8 +335,11 @@ async function generateRoutineFromSelectedProducts() {
 
   generateRoutineBtn.disabled = true;
   setGenerateButtonsState(true);
-  chatWindow.innerHTML = "";
-  appendChatMessage("assistant", "Creating your custom routine...");
+
+  /* Show a personalized loading message without wiping the conversation */
+  const loadingId = "routine-loading-" + Date.now();
+  chatWindow.innerHTML += `<div class="chat-message ai-message" dir="ltr" id="${loadingId}"><em>Because you are worth it, ${userName || "you"}... ✨</em></div>`;
+  chatWindow.scrollTop = chatWindow.scrollHeight;
 
   try {
     const routineRequestMessages = [
@@ -348,14 +376,22 @@ async function generateRoutineFromSelectedProducts() {
       },
     ];
 
-    chatWindow.innerHTML = "";
+    /* Remove loading message and show the routine */
+    const loadingEl = document.getElementById(loadingId);
+    if (loadingEl) loadingEl.remove();
+
     appendChatMessage(
       "assistant",
-      `Your AI Routine:\n\n${routineText}`,
+      `Here is your personalized routine, ${userName}!\n\n${routineText}`,
       routineResponse.citations,
     );
   } catch (error) {
-    chatWindow.innerHTML = `Could not generate routine. ${error.message}`;
+    const loadingEl = document.getElementById(loadingId);
+    if (loadingEl) loadingEl.remove();
+    appendChatMessage(
+      "assistant",
+      `Could not generate routine. ${error.message}`,
+    );
   } finally {
     setGenerateButtonsState(false);
   }
@@ -374,6 +410,10 @@ async function sendFollowUpQuestion(questionText) {
   appendChatMessage("user", questionText);
 
   sendBtn.disabled = true;
+  /* Show personalized loading message */
+  const loadingId = "loading-msg-" + Date.now();
+  chatWindow.innerHTML += `<div class="chat-message ai-message" dir="ltr" id="${loadingId}"><em>Because you are worth it, ${userName || "you"}...</em></div>`;
+  chatWindow.scrollTop = chatWindow.scrollHeight;
 
   try {
     const requestMessages = [
@@ -387,12 +427,29 @@ async function sendFollowUpQuestion(questionText) {
     conversationMessages.push({ role: "user", content: questionText });
     conversationMessages.push({ role: "assistant", content: answer });
 
+    /* Remove the loading message then show the real answer */
+    const loadingEl = document.getElementById(loadingId);
+    if (loadingEl) loadingEl.remove();
+
     appendChatMessage("assistant", answer, followUpResponse.citations);
   } catch (error) {
+    const loadingEl = document.getElementById(loadingId);
+    if (loadingEl) loadingEl.remove();
     appendChatMessage("assistant", `Could not get a reply. ${error.message}`);
   } finally {
     sendBtn.disabled = false;
   }
+}
+
+/* Show the welcome greeting in the chat window asking for the user's name */
+function showWelcomeGreeting() {
+  chatWindow.innerHTML = `
+    <div class="chat-message ai-message" dir="ltr">
+      <strong>Advisor:</strong><br>
+      Hello! Welcome to the L&#39;Or&eacute;al Routine Builder. &#x2728;<br><br>
+      I&#39;m your personal beauty advisor. Before we get started, what&#39;s your name?
+    </div>
+  `;
 }
 
 /* Initialize app data once and show selected-products placeholder */
@@ -401,6 +458,7 @@ async function initializeApp() {
   loadSelectedProductsFromStorage();
   renderSelectedProducts();
   applyProductFilters();
+  showWelcomeGreeting();
 }
 
 initializeApp();
@@ -539,7 +597,7 @@ if (generateRoutineStickyBtn) {
   });
 }
 
-/* Chat form submission handler - placeholder for OpenAI integration */
+/* Chat form submission handler */
 chatForm.addEventListener("submit", async (e) => {
   e.preventDefault();
 
@@ -550,5 +608,19 @@ chatForm.addEventListener("submit", async (e) => {
   }
 
   userInput.value = "";
+
+  /* If we don't have the user's name yet, treat first message as the name */
+  if (!userName) {
+    userName = questionText;
+    appendChatMessage("user", questionText);
+    /* Update the input placeholder to include the user's name */
+    userInput.placeholder = `Because you are worth it, ${userName} — ask me about products or routines…`;
+    appendChatMessage(
+      "assistant",
+      `Nice to meet you, ${userName}! 🌟\n\nSelect a category and choose the products you'd like to use, then hit "Generate Routine" and I'll create a personalized beauty routine just for you.`,
+    );
+    return;
+  }
+
   await sendFollowUpQuestion(questionText);
 });

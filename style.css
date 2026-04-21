@@ -39,8 +39,12 @@ body {
 
 .site-header {
   text-align: center;
-  padding: 62px 12px 26px;
+  padding: 62px 12px 36px;
   position: relative;
+  background: linear-gradient(135deg, #ff003b 0%, #c0002c 50%, #e3a535 100%);
+  border-radius: 0 0 24px 24px;
+  box-shadow: 0 6px 32px rgba(255, 0, 59, 0.18);
+  margin-bottom: 12px;
 }
 
 .site-header::after {
@@ -67,14 +71,15 @@ body {
   text-transform: uppercase;
   font-weight: 800;
   margin-bottom: 10px;
-  text-shadow: 0 2px 18px rgba(227, 165, 53, 0.18);
+  color: #ffffff;
+  text-shadow: 0 2px 18px rgba(227, 165, 53, 0.45);
 }
 
 .site-subtitle {
   max-width: 600px;
   margin: 0 auto;
   font-size: 0.95rem;
-  color: var(--muted);
+  color: rgba(255, 255, 255, 0.7);
   line-height: 1.7;
   letter-spacing: 0.02em;
 }

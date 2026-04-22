@@ -1,0 +1,7 @@
+name = "09-prj-loreal-routine-builder"
+main = "cloudflare-worker.js"
+compatibility_date = "2026-04-22"
+workers_dev = true
+
+[vars]
+OPENAI_MODEL = "gpt-4o"

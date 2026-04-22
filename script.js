@@ -12,7 +12,7 @@ const chatForm = document.getElementById("chatForm");
 const chatWindow = document.getElementById("chatWindow");
 const userInput = document.getElementById("userInput");
 const sendBtn = document.getElementById("sendBtn");
-const workerUrl = typeof WORKER_URL !== "undefined" ? WORKER_URL : "";
+const workerUrl = "https://shy-shape-77b2.jackie-valiente1.workers.dev";
 const openAiApiKey =
   typeof OPENAI_API_KEY !== "undefined" ? OPENAI_API_KEY : "";
 
@@ -272,7 +272,7 @@ function appendChatMessage(sender, text, citations = []) {
 async function callAdvisorWithWorker(messages, useWebSearch = false) {
   /* --- Cloudflare Worker path --- */
   if (workerUrl) {
-    const response = await fetch(`${workerUrl}/chat`, {
+    const response = await fetch(workerUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ messages, webSearch: useWebSearch }),
@@ -284,19 +284,19 @@ async function callAdvisorWithWorker(messages, useWebSearch = false) {
 
     const data = await response.json();
 
-    if (!data.text) {
+    if (!data.choices || !data.choices[0]?.message?.content) {
       throw new Error("No response text was returned by the worker.");
     }
 
     return {
-      text: data.text,
+      text: data.choices[0].message.content,
       citations: Array.isArray(data.citations) ? data.citations : [],
     };
   }
 
   /* --- Direct OpenAI fallback (no web search) --- */
   if (!openAiApiKey) {
-    throw new Error("Add your OpenAI API key in secrets.js to use this app.");
+    throw new Error("No worker URL and no OpenAI API key available.");
   }
 
   const response = await fetch("https://api.openai.com/v1/chat/completions", {

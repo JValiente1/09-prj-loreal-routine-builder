@@ -12,6 +12,7 @@ const chatForm = document.getElementById("chatForm");
 const chatWindow = document.getElementById("chatWindow");
 const userInput = document.getElementById("userInput");
 const sendBtn = document.getElementById("sendBtn");
+const directionToggleBtn = document.getElementById("directionToggleBtn");
 const workerUrl = "https://shy-shape-77b2.jackie-valiente1.workers.dev";
 const openAiApiKey =
   typeof OPENAI_API_KEY !== "undefined" ? OPENAI_API_KEY : "";
@@ -23,14 +24,98 @@ let generatedRoutineText = "";
 let currentCategory = "";
 let currentSearchTerm = "";
 const selectedProductsStorageKey = "lorealSelectedProductIds";
+const textDirectionStorageKey = "lorealTextDirection";
+const rtlLanguagePrefixes = ["ar", "fa", "he", "ur"];
 
 const followUpSystemPrompt =
-  "You are a beauty routine advisor. Answer follow-up questions only about the generated routine or related beauty topics: skincare, haircare, makeup, fragrance, skin concerns, hair concerns, and product usage. If a question is unrelated, politely refuse and guide the user back to routine/beauty topics. Keep answers clear and beginner-friendly.";
+  "You are a beauty routine advisor. Answer beauty and product questions in a seamless, beginner-friendly way. If generated routine context is provided, use it to answer follow-up questions about that routine. Do not greet the user again, do not treat their message as a name, and do not generate a full new routine unless they explicitly ask for a new or updated routine. If a question is unrelated to beauty, skincare, haircare, makeup, fragrance, product usage, or the generated routine, politely refuse and guide the user back to beauty topics.";
 
 let conversationMessages = [{ role: "system", content: followUpSystemPrompt }];
 
 /* Store the user's name once they introduce themselves */
 let userName = "";
+
+function getCurrentDirection() {
+  return document.documentElement.dir === "rtl" ? "rtl" : "ltr";
+}
+
+function formatName(nameText) {
+  return nameText
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function extractUserName(inputText) {
+  const trimmedText = inputText.trim().replace(/\s+/g, " ");
+
+  if (!trimmedText) {
+    return "";
+  }
+
+  const explicitNameMatch = trimmedText.match(
+    /^(?:my name is|i am|i'm)\s+([a-z][a-z' -]{0,30})$/i,
+  );
+
+  if (explicitNameMatch) {
+    return formatName(explicitNameMatch[1]);
+  }
+
+  if (/[?\d]/.test(trimmedText)) {
+    return "";
+  }
+
+  if (
+    /^(who|what|when|where|why|how|should|can|could|would|will|do|does|did|is|are|am|which|recommend|tell|give|explain|help)\b/i.test(
+      trimmedText,
+    )
+  ) {
+    return "";
+  }
+
+  const words = trimmedText.split(" ");
+
+  if (words.length > 3 || !/^[a-z][a-z' -]*$/i.test(trimmedText)) {
+    return "";
+  }
+
+  return formatName(trimmedText);
+}
+
+function setUserName(nameText) {
+  userName = nameText;
+  userInput.placeholder = "Ask me about products or routines…";
+}
+
+function getPreferredDirection() {
+  const savedDirection = localStorage.getItem(textDirectionStorageKey);
+
+  if (savedDirection === "ltr" || savedDirection === "rtl") {
+    return savedDirection;
+  }
+
+  const browserLanguage = (navigator.language || "en").toLowerCase();
+  const languagePrefix = browserLanguage.split("-")[0];
+
+  return rtlLanguagePrefixes.includes(languagePrefix) ? "rtl" : "ltr";
+}
+
+function applyTextDirection(direction) {
+  const nextDirection = direction === "rtl" ? "rtl" : "ltr";
+
+  document.documentElement.dir = nextDirection;
+  userInput.dir = nextDirection;
+  productSearchInput.dir = nextDirection;
+  localStorage.setItem(textDirectionStorageKey, nextDirection);
+
+  if (directionToggleBtn) {
+    const isRtl = nextDirection === "rtl";
+    directionToggleBtn.setAttribute("aria-pressed", String(isRtl));
+    directionToggleBtn.textContent = isRtl ? "Switch to LTR" : "Switch to RTL";
+  }
+}
 
 function setGenerateButtonsState(isLoading) {
   const buttons = [generateRoutineBtn, generateRoutineStickyBtn].filter(
@@ -251,6 +336,15 @@ function renderCitations(citations) {
   `;
 }
 
+function appendLoadingMessage(loadingId, text) {
+  chatWindow.innerHTML += `
+    <div class="chat-message ai-message" dir="${getCurrentDirection()}" id="${loadingId}">
+      <em>${escapeHtml(text)}</em>
+    </div>
+  `;
+  chatWindow.scrollTop = chatWindow.scrollHeight;
+}
+
 /* Append one message to the chat window */
 function appendChatMessage(sender, text, citations = []) {
   const senderLabel = sender === "user" ? "You" : "Advisor";
@@ -258,7 +352,7 @@ function appendChatMessage(sender, text, citations = []) {
     sender === "user" ? "chat-message user-message" : "chat-message ai-message";
 
   chatWindow.innerHTML += `
-    <div class="${bubbleClass}" dir="ltr">
+    <div class="${bubbleClass}" dir="${getCurrentDirection()}">
       <strong>${senderLabel}:</strong><br>
       ${formatForChat(text)}
       ${renderCitations(citations)}
@@ -338,8 +432,10 @@ async function generateRoutineFromSelectedProducts() {
 
   /* Show a personalized loading message without wiping the conversation */
   const loadingId = "routine-loading-" + Date.now();
-  chatWindow.innerHTML += `<div class="chat-message ai-message" dir="ltr" id="${loadingId}"><em>Because you are worth it, ${userName || "you"}... ✨</em></div>`;
-  chatWindow.scrollTop = chatWindow.scrollHeight;
+  appendLoadingMessage(
+    loadingId,
+    `Because you are worth it, ${userName || "you"}...`,
+  );
 
   try {
     const routineRequestMessages = [
@@ -382,7 +478,7 @@ async function generateRoutineFromSelectedProducts() {
 
     appendChatMessage(
       "assistant",
-      `Here is your personalized routine, ${userName}!\n\n${routineText}`,
+      `Here is your personalized routine${userName ? `, ${userName}` : ""}!\n\n${routineText}`,
       routineResponse.citations,
     );
   } catch (error) {
@@ -397,23 +493,17 @@ async function generateRoutineFromSelectedProducts() {
   }
 }
 
-/* Send follow-up question with full conversation history */
-async function sendFollowUpQuestion(questionText) {
-  if (!generatedRoutineText) {
-    appendChatMessage(
-      "assistant",
-      "Generate a routine first, then ask follow-up questions about your routine or beauty topics.",
-    );
-    return;
-  }
-
+/* Send beauty or routine follow-up question with full conversation history */
+async function sendChatQuestion(questionText) {
   appendChatMessage("user", questionText);
 
   sendBtn.disabled = true;
   /* Show personalized loading message */
   const loadingId = "loading-msg-" + Date.now();
-  chatWindow.innerHTML += `<div class="chat-message ai-message" dir="ltr" id="${loadingId}"><em>Because you are worth it, ${userName || "you"}...</em></div>`;
-  chatWindow.scrollTop = chatWindow.scrollHeight;
+  appendLoadingMessage(
+    loadingId,
+    `Because you are worth it, ${userName || "you"}...`,
+  );
 
   try {
     const requestMessages = [
@@ -444,16 +534,17 @@ async function sendFollowUpQuestion(questionText) {
 /* Show the welcome greeting in the chat window asking for the user's name */
 function showWelcomeGreeting() {
   chatWindow.innerHTML = `
-    <div class="chat-message ai-message" dir="ltr">
+    <div class="chat-message ai-message" dir="${getCurrentDirection()}">
       <strong>Advisor:</strong><br>
       Hello! Welcome to the L&#39;Or&eacute;al Routine Builder. &#x2728;<br><br>
-      I&#39;m your personal beauty advisor. Before we get started, what&#39;s your name?
+      I&#39;m your personal beauty advisor. You can tell me your name, ask a beauty question, or generate a routine whenever you&#39;re ready.
     </div>
   `;
 }
 
 /* Initialize app data once and show selected-products placeholder */
 async function initializeApp() {
+  applyTextDirection(getPreferredDirection());
   allProducts = await loadProducts();
   loadSelectedProductsFromStorage();
   renderSelectedProducts();
@@ -597,6 +688,13 @@ if (generateRoutineStickyBtn) {
   });
 }
 
+if (directionToggleBtn) {
+  directionToggleBtn.addEventListener("click", () => {
+    const nextDirection = getCurrentDirection() === "rtl" ? "ltr" : "rtl";
+    applyTextDirection(nextDirection);
+  });
+}
+
 /* Chat form submission handler */
 chatForm.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -609,12 +707,12 @@ chatForm.addEventListener("submit", async (e) => {
 
   userInput.value = "";
 
-  /* If we don't have the user's name yet, treat first message as the name */
-  if (!userName) {
-    userName = questionText;
+  /* Only store input as a name if it actually looks like a name */
+  const submittedName = !userName ? extractUserName(questionText) : "";
+
+  if (submittedName) {
+    setUserName(submittedName);
     appendChatMessage("user", questionText);
-    /* Update the input placeholder to include the user's name */
-    userInput.placeholder = `Because you are worth it, ${userName} — ask me about products or routines…`;
     appendChatMessage(
       "assistant",
       `Nice to meet you, ${userName}! 🌟\n\nSelect a category and choose the products you'd like to use, then hit "Generate Routine" and I'll create a personalized beauty routine just for you.`,
@@ -622,5 +720,5 @@ chatForm.addEventListener("submit", async (e) => {
     return;
   }
 
-  await sendFollowUpQuestion(questionText);
+  await sendChatQuestion(questionText);
 });

@@ -84,6 +84,33 @@ body {
   letter-spacing: 0.02em;
 }
 
+.direction-toggle {
+  margin-top: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+  border-radius: 999px;
+  padding: 10px 16px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    transform 0.2s ease,
+    background 0.2s ease;
+}
+
+.direction-toggle:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.direction-toggle:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.9);
+  outline-offset: 3px;
+}
+
 .search-section {
   margin: 26px 0 34px;
 }
@@ -503,6 +530,10 @@ html[dir="rtl"] .selected-chip {
   flex-direction: row-reverse;
 }
 
+html[dir="rtl"] .search-controls {
+  direction: rtl;
+}
+
 html[dir="rtl"] .chat-form {
   flex-direction: row-reverse;
 }
@@ -517,6 +548,15 @@ html[dir="rtl"] .ai-message {
 
 html[dir="rtl"] .user-message {
   align-self: flex-start;
+}
+
+html[dir="rtl"] .chat-citations ul {
+  padding-inline-start: 0;
+  padding-inline-end: 18px;
+}
+
+html[dir="rtl"] .direction-toggle {
+  direction: ltr;
 }
 
 .chat-form input {
